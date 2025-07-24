@@ -10,6 +10,8 @@ data "external" "archive_prepare" {
   program = [local.python, "${path.module}/package.py", "prepare"]
 
   query = {
+	  package_target = var.package_target
+
     paths = jsonencode({
       module = path.module
       root   = path.root

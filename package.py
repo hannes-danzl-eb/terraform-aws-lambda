@@ -1056,6 +1056,15 @@ def install_pip_requirements(query, requirements_file, tmp_dir):
         yield
         return
 
+
+    print("="*80, flush=True)
+    print("="*80, flush=True)
+
+    print(json.dumps(query, default=str), flush=True)
+
+    print("="*80, flush=True)
+    print("="*80, flush=True)
+
     runtime = query.runtime
     artifacts_dir = query.artifacts_dir
     docker = query.docker
@@ -1126,6 +1135,10 @@ def install_pip_requirements(query, requirements_file, tmp_dir):
                 "--target=.",
                 "--requirement={}".format(requirements_filename),
             ]
+
+            if query.package_target:
+                pip_command += [f"--platform={query.package_target}", "--only-binary=:all:"]
+
             if docker:
                 with_ssh_agent = docker.with_ssh_agent
                 pip_cache_dir = docker.docker_pip_cache
@@ -1606,6 +1619,9 @@ def prepare_command(args):
 
     query = datatree("prepare_query", **query_data)
 
+    # raise to stop for debugging 
+    # raise Exception(json.dumps(query, indent=2, default=str))
+
     tf_paths = query.paths
     runtime = query.runtime
     function_name = query.function_name
@@ -1656,6 +1672,7 @@ def prepare_command(args):
         "filename": zip_filename,
         "runtime": runtime,
         "artifacts_dir": artifacts_dir,
+        "package_target": query.package_target,
         "build_plan": build_plan,
     }
     if docker:
