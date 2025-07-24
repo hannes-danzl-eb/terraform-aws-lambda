@@ -1136,8 +1136,8 @@ def install_pip_requirements(query, requirements_file, tmp_dir):
                 "--requirement={}".format(requirements_filename),
             ]
 
-            if query.package_target:
-                pip_command += [f"--platform={query.package_target}", "--only-binary=:all:"]
+            if query.pip_package_target:
+                pip_command += [f"--platform={query.pip_package_target}", "--only-binary=:all:"]
 
             if docker:
                 with_ssh_agent = docker.with_ssh_agent
@@ -1672,7 +1672,7 @@ def prepare_command(args):
         "filename": zip_filename,
         "runtime": runtime,
         "artifacts_dir": artifacts_dir,
-        "package_target": query.package_target,
+        "pip_package_target": query.pip_package_target,
         "build_plan": build_plan,
     }
     if docker:

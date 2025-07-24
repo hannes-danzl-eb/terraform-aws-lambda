@@ -10,12 +10,6 @@ variable "create_package" {
   default     = true
 }
 
-variable "package_target" {
-  description = "Controls the python target wheels. If set it uses it in combination with the binary_only flag. Will only work for packages that have a binary wheel for this target."
-  type = string
-  default = null
-}
-
 variable "create_function" {
   description = "Controls whether Lambda Function resource should be created"
   type        = bool
@@ -815,6 +809,13 @@ variable "quiet_archive_local_exec" {
   type        = bool
   default     = true
 }
+
+variable "pip_package_target" {
+  description = "Controls the python target wheels. If set it uses it in combination with the binary_only flag. Will only work for packages that have a binary wheel for this target."
+  type = string
+  default = null
+}
+
 
 ############################################
 # Lambda Advanced Logging Settings
