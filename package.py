@@ -293,9 +293,11 @@ class ZipWriteStream:
         compress_type=zipfile.ZIP_DEFLATED,
         compresslevel=None,
         timestamp=None,
+        quiet=False,
     ):
         self.timestamp = timestamp
         self.filename = zip_filename
+        self.quiet = quiet
 
         if not (self.filename and isinstance(self.filename, str)):
             raise ValueError("Zip file path must be provided")
@@ -312,7 +314,8 @@ class ZipWriteStream:
             raise zipfile.BadZipFile("ZipStream object can't be reused")
         self._ensure_base_path(self.filename)
         self._tmp_filename = "{}.tmp".format(self.filename)
-        self._log.info("creating '%s' archive", self.filename)
+        if not self.quiet:
+            self._log.info("creating '%s' archive", self.filename)
         self._zip = zipfile.ZipFile(self._tmp_filename, "w", self._compress_type)
         return self
 
@@ -356,7 +359,8 @@ class ZipWriteStream:
         """
         self._ensure_open()
         for base_dir in base_dirs:
-            self._log.info("adding content of directory: %s", base_dir)
+            if not self.quiet:
+                self._log.info("adding content of directory: %s", base_dir)
             for path in emit_dir_content(base_dir):
                 arcname = os.path.relpath(path, base_dir)
                 self._write_file(path, prefix, arcname, timestamp)
@@ -382,10 +386,11 @@ class ZipWriteStream:
         if prefix:
             arcname = os.path.join(prefix, arcname)
         zinfo = self._make_zinfo_from_file(file_path, arcname)
-        if zinfo.is_dir():
-            self._log.info("adding: %s/", arcname)
-        else:
-            self._log.info("adding: %s", arcname)
+        if not self.quiet:
+            if zinfo.is_dir():
+                self._log.info("adding: %s/", arcname)
+            else:
+                self._log.info("adding: %s", arcname)
         if timestamp is None:
             timestamp = self.timestamp
         date_time = self._timestamp_to_date_time(timestamp)
@@ -733,6 +738,14 @@ class BuildPlanManager:
             requirements = path
             if os.path.isdir(path):
                 requirements = os.path.join(path, "package.json")
+                npm_lock_file = os.path.join(path, "package-lock.json")
+            else:
+                npm_lock_file = os.path.join(os.path.dirname(path), "package-lock.json")
+
+            if os.path.isfile(npm_lock_file):
+                hash(npm_lock_file)
+                log.info("Added npm lock file: %s", npm_lock_file)
+
             if not os.path.isfile(requirements):
                 if required:
                     raise RuntimeError("File not found: {}".format(requirements))
@@ -1097,7 +1110,7 @@ def install_pip_requirements(query, requirements_file, tmp_dir):
                 ok = True
         elif docker_file or docker_build_root:
             raise ValueError(
-                "docker_image must be specified " "for a custom image future references"
+                "docker_image must be specified for a custom image future references"
             )
 
     working_dir = os.getcwd()
@@ -1117,7 +1130,7 @@ def install_pip_requirements(query, requirements_file, tmp_dir):
             elif OSX:
                 # Workaround for OSX when XCode command line tools'
                 # python becomes the main system python interpreter
-                os_path = "{}:/Library/Developer/CommandLineTools" "/usr/bin".format(
+                os_path = "{}:/Library/Developer/CommandLineTools/usr/bin".format(
                     os.environ["PATH"]
                 )
                 subproc_env = os.environ.copy()
@@ -1175,7 +1188,15 @@ def install_pip_requirements(query, requirements_file, tmp_dir):
                 cmd_log.info(shlex_join(pip_command))
                 log_handler and log_handler.flush()
                 try:
-                    check_call(pip_command, env=subproc_env)
+                    if query.quiet:
+                        check_call(
+                            pip_command,
+                            env=subproc_env,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                    else:
+                        check_call(pip_command, env=subproc_env)
                 except FileNotFoundError as e:
                     raise RuntimeError(
                         "Python interpreter version equal "
@@ -1351,7 +1372,15 @@ def install_poetry_dependencies(query, path, poetry_export_extra_args, tmp_dir):
                 cmd_log.info(poetry_commands)
                 log_handler and log_handler.flush()
                 for poetry_command in poetry_commands:
-                    check_call(poetry_command, env=subproc_env)
+                    if query.quiet:
+                        check_call(
+                            poetry_command,
+                            env=subproc_env,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                    else:
+                        check_call(poetry_command, env=subproc_env)
 
             os.remove(pyproject_target_file)
             if poetry_lock_target_file:
@@ -1403,14 +1432,15 @@ def install_npm_requirements(query, requirements_file, tmp_dir):
                 ok = True
         elif docker_file or docker_build_root:
             raise ValueError(
-                "docker_image must be specified " "for a custom image future references"
+                "docker_image must be specified for a custom image future references"
             )
 
     log.info("Installing npm requirements: %s", requirements_file)
     with tempdir(tmp_dir) as temp_dir:
-        requirements_filename = os.path.basename(requirements_file)
-        target_file = os.path.join(temp_dir, requirements_filename)
-        shutil.copyfile(requirements_file, target_file)
+        temp_copy = TemporaryCopy(os.path.dirname(requirements_file), temp_dir, log)
+        temp_copy.add(os.path.basename(requirements_file))
+        temp_copy.add("package-lock.json", required=False)
+        temp_copy.copy_to_target_dir()
 
         subproc_env = None
         npm_exec = "npm"
@@ -1447,7 +1477,15 @@ def install_npm_requirements(query, requirements_file, tmp_dir):
                 cmd_log.info(shlex_join(npm_command))
                 log_handler and log_handler.flush()
                 try:
-                    check_call(npm_command, env=subproc_env)
+                    if query.quiet:
+                        check_call(
+                            npm_command,
+                            env=subproc_env,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                    else:
+                        check_call(npm_command, env=subproc_env)
                 except FileNotFoundError as e:
                     raise RuntimeError(
                         "Nodejs interpreter version equal "
@@ -1455,8 +1493,61 @@ def install_npm_requirements(query, requirements_file, tmp_dir):
                         "available in system PATH".format(runtime)
                     ) from e
 
-            os.remove(target_file)
+            temp_copy.remove_from_target_dir()
             yield temp_dir
+
+
+class TemporaryCopy:
+    """Temporarily copy files to a specified location and remove them when
+    not needed.
+    """
+
+    def __init__(self, source_dir_path, target_dir_path, logger=None):
+        """Initialise with a target and a source directories."""
+        self.source_dir_path = source_dir_path
+        self.target_dir_path = target_dir_path
+        self._filenames = []
+        self._logger = logger
+
+    def _make_source_path(self, filename):
+        return os.path.join(self.source_dir_path, filename)
+
+    def _make_target_path(self, filename):
+        return os.path.join(self.target_dir_path, filename)
+
+    def add(self, filename, *, required=True):
+        """Add a file to be copied from from source to target directory
+        when `TemporaryCopy.copy_to_target_dir()` is called.
+
+        By default, the file must exist in the source directory. Set `required`
+        to `False` if the file is optional.
+        """
+        if os.path.exists(self._make_source_path(filename)):
+            self._filenames.append(filename)
+        elif required:
+            raise RuntimeError("File not found: {}".format(filename))
+
+    def copy_to_target_dir(self):
+        """Copy files (added so far) to the target directory."""
+        for filename in self._filenames:
+            if self._logger:
+                self._logger.info("Copying temporarily '%s'", filename)
+
+            shutil.copyfile(
+                self._make_source_path(filename),
+                self._make_target_path(filename),
+            )
+
+    def remove_from_target_dir(self):
+        """Remove files (added so far) from the target directory."""
+        for filename in self._filenames:
+            if self._logger:
+                self._logger.info("Removing temporarily copied '%s'", filename)
+
+            try:
+                os.remove(self._make_target_path(filename))
+            except FileNotFoundError:
+                pass
 
 
 def docker_image_id_command(tag):
@@ -1665,7 +1756,7 @@ def prepare_command(args):
             timestamp = timestamp_now_ns()
             was_missing = True
     else:
-        timestamp = "<WARNING: Missing lambda zip artifacts " "wouldn't be restored>"
+        timestamp = "<WARNING: Missing lambda zip artifacts wouldn't be restored>"
 
     # Replace variables in the build command with calculated values.
     build_data = {
@@ -1674,6 +1765,7 @@ def prepare_command(args):
         "artifacts_dir": artifacts_dir,
         "pip_package_target": query.pip_package_target,
         "build_plan": build_plan,
+        "quiet": query.quiet,
     }
     if docker:
         build_data["docker"] = docker
@@ -1733,12 +1825,13 @@ def build_command(args):
 
     # Zip up the build plan and write it to the target filename.
     # This will be used by the Lambda function as the source code package.
-    with ZipWriteStream(filename) as zs:
+    with ZipWriteStream(filename, quiet=getattr(query, "quiet", False)) as zs:
         bpm = BuildPlanManager(args, log=log)
         bpm.execute(build_plan, zs, query)
 
     os.utime(filename, ns=(timestamp, timestamp))
-    log.info("Created: %s", shlex.quote(filename))
+    if not getattr(query, "quiet", False):
+        log.info("Created: %s", shlex.quote(filename))
     if log.isEnabledFor(logging.DEBUG):
         with open(filename, "rb") as f:
             log.info("Base64sha256: %s", source_code_hash(f.read()))
